@@ -6,7 +6,7 @@
 // For more information, the home page:
 // http://pieroxy.net/blog/pages/lz-string/testing.html
 //
-// LZ-based compression algorithm, version 1.4.3
+// LZ-based compression algorithm, version 1.5 beta
 var LZString = (function() {
 
 // private property
@@ -14,6 +14,34 @@ var f = String.fromCharCode;
 var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 var keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
 var baseReverseDic = {};
+
+var lzs_GetMap = function() {
+  return new Map();
+}
+
+if (typeof Map === "undefined") {
+  var lzs_NewCompatMap = function() {
+    this.data = {};
+  }
+  
+  lzs_NewCompatMap.prototype.get = function(key) {
+    if (this.data.hasOwnProperty(key)) return this.data[key];
+    return null;
+  }
+  lzs_NewCompatMap.prototype.set = function(key,value) {
+    this.data[key] = value;
+  }
+  lzs_NewCompatMap.prototype.has = function(key) {
+    return this.data.hasOwnProperty(key);
+  }
+  lzs_NewCompatMap.prototype["delete"] = function(key) {
+    delete this.data[key];
+  }
+  
+  lzs_GetMap = function() {
+    return new lzs_NewCompatMap();
+  };
+}
 
 function getBaseValue(alphabet, character) {
   if (!baseReverseDic[alphabet]) {
@@ -109,8 +137,8 @@ var LZString = {
   _compress: function (uncompressed, bitsPerChar, getCharFromInt) {
     if (uncompressed == null) return "";
     var i, value,
-        context_dictionary= {},
-        context_dictionaryToCreate= {},
+        context_dictionary= lzs_GetMap(),
+        context_dictionaryToCreate= lzs_GetMap(),
         context_c="",
         context_wc="",
         context_w="",
@@ -124,16 +152,16 @@ var LZString = {
 
     for (ii = 0; ii < uncompressed.length; ii += 1) {
       context_c = uncompressed[ii];
-      if (!Object.prototype.hasOwnProperty.call(context_dictionary,context_c)) {
-        context_dictionary[context_c] = context_dictSize++;
-        context_dictionaryToCreate[context_c] = true;
+      if (!context_dictionary.has(context_c)) {
+        context_dictionary.set(context_c,context_dictSize++);
+        context_dictionaryToCreate.set(context_c, true);
       }
 
       context_wc = context_w + context_c;
-      if (Object.prototype.hasOwnProperty.call(context_dictionary,context_wc)) {
+      if (context_dictionary.has(context_wc)) {
         context_w = context_wc;
       } else {
-        if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
+        if (context_dictionaryToCreate.has(context_w)) {
           if (context_w.charCodeAt(0)<256) {
             for (i=0 ; i<context_numBits ; i++) {
               context_data_val = (context_data_val << 1);
@@ -188,9 +216,9 @@ var LZString = {
             context_enlargeIn = Math.pow(2, context_numBits);
             context_numBits++;
           }
-          delete context_dictionaryToCreate[context_w];
+          context_dictionaryToCreate["delete"](context_w);
         } else {
-          value = context_dictionary[context_w];
+          value = context_dictionary.get(context_w);
           for (i=0 ; i<context_numBits ; i++) {
             context_data_val = (context_data_val << 1) | (value&1);
             if (context_data_position == bitsPerChar-1) {
@@ -211,14 +239,14 @@ var LZString = {
           context_numBits++;
         }
         // Add wc to the dictionary.
-        context_dictionary[context_wc] = context_dictSize++;
+        context_dictionary.set(context_wc, context_dictSize++);
         context_w = String(context_c);
       }
     }
 
     // Output the code for w.
     if (context_w !== "") {
-      if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
+      if (context_dictionaryToCreate.has(context_w)) {
         if (context_w.charCodeAt(0)<256) {
           for (i=0 ; i<context_numBits ; i++) {
             context_data_val = (context_data_val << 1);
@@ -273,9 +301,9 @@ var LZString = {
           context_enlargeIn = Math.pow(2, context_numBits);
           context_numBits++;
         }
-        delete context_dictionaryToCreate[context_w];
+        context_dictionaryToCreate["delete"](context_w);
       } else {
-        value = context_dictionary[context_w];
+        value = context_dictionary.get(context_w);
         for (i=0 ; i<context_numBits ; i++) {
           context_data_val = (context_data_val << 1) | (value&1);
           if (context_data_position == bitsPerChar-1) {
@@ -330,7 +358,7 @@ var LZString = {
   },
 
   _decompress: function (length, resetValue, getNextValue) {
-    var dictionary = [],
+    var dictionary = lzs_GetMap(),
         next,
         enlargeIn = 4,
         dictSize = 4,
@@ -344,7 +372,7 @@ var LZString = {
         data = {val:getNextValue(0), position:resetValue, index:1};
 
     for (i = 0; i < 3; i += 1) {
-      dictionary[i] = i;
+      dictionary.set(i, i);
     }
 
     bits = 0;
@@ -397,7 +425,7 @@ var LZString = {
       case 2:
         return "";
     }
-    dictionary[3] = c;
+    dictionary.set(3, c);
     w = c;
     result.push(c);
     while (true) {
@@ -435,7 +463,7 @@ var LZString = {
             power <<= 1;
           }
 
-          dictionary[dictSize++] = f(bits);
+          dictionary.set(dictSize++, f(bits));
           c = dictSize-1;
           enlargeIn--;
           break;
@@ -453,7 +481,7 @@ var LZString = {
             bits |= (resb>0 ? 1 : 0) * power;
             power <<= 1;
           }
-          dictionary[dictSize++] = f(bits);
+          dictionary.set(dictSize++, f(bits));
           c = dictSize-1;
           enlargeIn--;
           break;
@@ -466,8 +494,8 @@ var LZString = {
         numBits++;
       }
 
-      if (dictionary[c]) {
-        entry = dictionary[c];
+      if (dictionary.get(c)) {
+        entry = dictionary.get(c);
       } else {
         if (c === dictSize) {
           entry = w + w[0];
@@ -478,7 +506,7 @@ var LZString = {
       result.push(entry);
 
       // Add w+entry[0] to the dictionary.
-      dictionary[dictSize++] = w + entry[0];
+      dictionary.set(dictSize++, w + entry[0]);
       enlargeIn--;
 
       w = entry;
